@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Material {
+  id             Int      @id @default(autoincrement())
+  name           String   @unique
+  description    String?
+  alertThreshold Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  templateItems  StorageTemplateItem[]
+  stockItems     StockItem[]
+  inventoryItems InventoryItem[]
+}
+
+model Storage {
+  id            Int       @id @default(autoincrement())
+  name          String
+  parentId      Int?
+  parent        Storage?  @relation("StorageHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children      Storage[] @relation("StorageHierarchy")
+  isGlobalStock Boolean   @default(false)
+  uniqueLink    String?   @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  templateItems  StorageTemplateItem[]
+  stockItems     StockItem[]
+  inventories    Inventory[]
+  inventoryItems InventoryItem[]
+}
+
+model StorageTemplateItem {
+  id               Int      @id @default(autoincrement())
+  storageId        Int
+  storage          Storage  @relation(fields: [storageId], references: [id], onDelete: Cascade)
+  materialId       Int
+  material         Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  expectedQuantity Int
+
+  @@unique([storageId, materialId])
+}
+
+model StockItem {
+  id             Int       @id @default(autoincrement())
+  storageId      Int
+  storage        Storage   @relation(fields: [storageId], references: [id], onDelete: Cascade)
+  materialId     Int
+  material       Material  @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  quantity       Int       @default(0)
+  expirationDate DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Inventory {
+  id          Int           @id @default(autoincrement())
+  storageId   Int
+  storage     Storage       @relation(fields: [storageId], references: [id])
+  rescuerName String
+  postName    String?
+  postNumber  String?
+  type        String
+  greeting    String?
+  createdAt   DateTime      @default(now())
+
+  items InventoryItem[]
+}
+
+model InventoryItem {
+  id            Int       @id @default(autoincrement())
+  inventoryId   Int
+  inventory     Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  storageId     Int
+  storage       Storage   @relation(fields: [storageId], references: [id])
+  materialId    Int
+  material      Material  @relation(fields: [materialId], references: [id])
+  expected      Int
+  quantityFound Int
+  quantityAdded Int       @default(0)
+  createdAt     DateTime  @default(now())
+}
