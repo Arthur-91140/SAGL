@@ -23,6 +23,9 @@
     "qrcode": "^1.5.4",
     "uuid": "^10.0.0"
   },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
