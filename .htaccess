@@ -1,0 +1,23 @@
+RewriteEngine On
+
+# Rediriger / vers /admin/
+RewriteRule ^$ admin/index.html [L,R=302]
+
+# API : tout envoyer vers api/index.php
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+
+# Inventaire public : /i/{uniqueLink} -> i/index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^i/(.+)$ i/index.php [QSA,L]
+
+# Ne pas toucher aux fichiers statiques existants
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# Protéger le dossier data
+RewriteRule ^data/ - [F,L]
+
+# Protéger install.php (décommenter après installation)
+# RewriteRule ^install\.php$ - [F,L]

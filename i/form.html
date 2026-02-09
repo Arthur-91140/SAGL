@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Inventaire - SAGL</title>
+    <link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+    <div class="inventory-form-page" id="page">
+        <div class="spinner-center"><div class="spinner"></div></div>
+    </div>
+
+    <script src="../assets/js/api.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script>
+        const pathParts = window.location.pathname.split('/');
+        const iIdx = pathParts.indexOf('i');
+        const uniqueLink = iIdx >= 0 ? pathParts[iIdx + 1] : '';
+
+        let storageData = null;
+        let sessionData = null;
+        let items = [];
+        let expandedGroups = {};
+
+        async function init() {
+            const saved = sessionStorage.getItem('sagl_inventory');
+            if (!saved) {
+                window.location.href = window.location.pathname.replace('/form', '');
+                return;
+            }
+            sessionData = JSON.parse(saved);
+
+            try {
+                storageData = await publicInventory.get(uniqueLink);
+                items = [];
+                collectItems(storageData);
+                renderForm();
+            } catch (err) {
+                showToast('Erreur de chargement', 'error');
+                window.location.href = window.location.pathname.replace('/form', '');
+            }
+        }
+
+        function collectItems(node) {
+            if (node.templateItems) {
+                node.templateItems.forEach(t => {
+                    items.push({
+                        storageId: node.id,
+                        storageName: node.name,
+                        materialId: t.materialId,
+                        materialName: t.material.name,
+                        expected: t.expectedQuantity,
+                        quantityFound: t.expectedQuantity,
+                        quantityAdded: 0,
+                    });
+                });
+            }
+            if (node.children) {
+                node.children.forEach(child => collectItems(child));
+            }
+        }
+
+        function renderForm() {
+            const greeting = getGreetingMessage(sessionData.type);
+
+            // Group by storage
+            const groups = new Map();
+            items.forEach((item, index) => {
+                const key = item.storageId + '-' + item.storageName;
+                if (!groups.has(key)) groups.set(key, { storageId: item.storageId, items: [] });
+                groups.get(key).items.push({ ...item, index });
+            });
+
+            let html = `
+                <div class="inventory-form-header">
+                    <h1>${escapeHtml(storageData?.name || '')}</h1>
+                    <p>${escapeHtml(sessionData.rescuerName)}${sessionData.postName ? ' — ' + escapeHtml(sessionData.postName) : ''}</p>
+                </div>
+
+                <div class="greeting-banner">${escapeHtml(greeting)}</div>
+            `;
+
+            for (const [key, group] of groups) {
+                const isExpanded = expandedGroups[key] !== false;
+                if (expandedGroups[key] === undefined) expandedGroups[key] = true;
+                const isRoot = group.storageId === storageData?.id;
+
+                html += `<div class="storage-group">
+                    <button class="storage-group-header${isRoot ? ' root' : ''}" onclick="expandedGroups['${key}']=${!isExpanded};renderForm()">
+                        ${isExpanded ? icons.chevronDown : icons.chevronRight}
+                        <span>${escapeHtml(group.items[0].storageName)}</span>
+                        <span class="storage-group-meta">${group.items.length} matériel(s)</span>
+                    </button>`;
+
+                if (isExpanded) {
+                    group.items.forEach(item => {
+                        const isMissing = item.quantityFound < item.expected;
+                        html += `<div class="material-row${isMissing ? ' missing' : ''}">
+                            <div class="material-row-header">
+                                <span class="material-name">${escapeHtml(item.materialName)}</span>
+                                <span class="material-expected">Attendu : ${item.expected}</span>
+                            </div>
+                            <div class="quantity-row">
+                                <span class="quantity-label">Quantité présente</span>
+                                <div class="quantity-controls">
+                                    <button class="qty-btn" onclick="updateItem(${item.index},'quantityFound',${item.quantityFound - 1})">${icons.minus}</button>
+                                    <input type="number" class="qty-input${isMissing ? ' missing' : ''}" value="${item.quantityFound}" min="0"
+                                        onchange="updateItem(${item.index},'quantityFound',parseInt(this.value)||0)">
+                                    <button class="qty-btn" onclick="updateItem(${item.index},'quantityFound',${item.quantityFound + 1})">${icons.plus}</button>
+                                </div>
+                            </div>
+                            <div class="quantity-row">
+                                <span class="quantity-label">Quantité ajoutée</span>
+                                <div class="quantity-controls">
+                                    <button class="qty-btn" onclick="updateItem(${item.index},'quantityAdded',${item.quantityAdded - 1})">${icons.minus}</button>
+                                    <input type="number" class="qty-input" value="${item.quantityAdded}" min="0"
+                                        onchange="updateItem(${item.index},'quantityAdded',parseInt(this.value)||0)">
+                                    <button class="qty-btn add" onclick="updateItem(${item.index},'quantityAdded',${item.quantityAdded + 1})">${icons.plus}</button>
+                                </div>
+                            </div>
+                            ${isMissing ? '<p class="missing-text">Manquant : ' + (item.expected - item.quantityFound) + ' unité(s)</p>' : ''}
+                        </div>`;
+                    });
+                }
+
+                html += '</div>';
+            }
+
+            // Submit bar
+            const addedCount = items.filter(i => i.quantityAdded > 0).length;
+            const totalAdded = items.reduce((sum, i) => sum + i.quantityAdded, 0);
+
+            html += `<div class="submit-bar">
+                <div class="submit-bar-inner">
+                    <div class="submit-summary">
+                        ${items.length} matériel(s)
+                        ${addedCount > 0 ? '<span class="submit-added">+' + totalAdded + ' ajouté(s)</span>' : ''}
+                    </div>
+                    <button class="btn-primary" onclick="handleSubmit()" id="submit-btn" style="padding:12px 24px">
+                        ${icons.send} Envoyer
+                    </button>
+                </div>
+            </div>`;
+
+            document.getElementById('page').innerHTML = html;
+        }
+
+        function updateItem(index, field, value) {
+            items[index][field] = Math.max(0, value);
+            renderForm();
+        }
+
+        async function handleSubmit() {
+            const btn = document.getElementById('submit-btn');
+            if (btn) { btn.disabled = true; btn.innerHTML = icons.send + ' Envoi...'; }
+
+            try {
+                await publicInventory.submit(uniqueLink, {
+                    rescuerName: sessionData.rescuerName,
+                    postName: sessionData.postName,
+                    postNumber: sessionData.postNumber,
+                    type: sessionData.type,
+                    items: items.map(item => ({
+                        storageId: item.storageId,
+                        materialId: item.materialId,
+                        expected: item.expected,
+                        quantityFound: item.quantityFound,
+                        quantityAdded: item.quantityAdded,
+                    })),
+                });
+
+                sessionStorage.setItem('sagl_inventory_result', JSON.stringify({
+                    storageName: storageData.name,
+                    type: sessionData.type,
+                    itemCount: items.length,
+                    addedCount: items.filter(i => i.quantityAdded > 0).length,
+                    missingCount: items.filter(i => i.quantityFound < i.expected).length,
+                }));
+
+                window.location.href = window.location.pathname.replace('/form', '/complete');
+            } catch (err) {
+                showToast(err.message || "Erreur lors de l'envoi", 'error');
+                if (btn) { btn.disabled = false; btn.innerHTML = icons.send + ' Envoyer'; }
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+RewriteEngine On
+
+# Envoyer toutes les requêtes API vers index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^(.*)$ index.php [QSA,L]

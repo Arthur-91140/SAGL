@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2563eb">
+    <title>Inventaire - SAGL</title>
+    <link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+    <div class="inventory-page" id="page">
+        <div class="spinner-center"><div class="spinner" style="border-top-color:white"></div></div>
+    </div>
+
+    <script src="../assets/js/api.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script>
+        // Extraire uniqueLink depuis l'URL
+        const pathParts = window.location.pathname.split('/');
+        const iIdx = pathParts.indexOf('i');
+        const uniqueLink = iIdx >= 0 ? pathParts[iIdx + 1] : '';
+        let storageData = null;
+        let selectedType = '';
+
+        async function init() {
+            try {
+                storageData = await publicInventory.get(uniqueLink);
+                renderPage();
+            } catch (err) {
+                document.getElementById('page').innerHTML = `
+                    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--gray-50);padding:16px">
+                        <div style="text-align:center">
+                            <div style="color:var(--gray-400);margin-bottom:16px">${icons.clipboardList}</div>
+                            <h1 style="font-size:20px;font-weight:700;margin-bottom:8px">Lien invalide</h1>
+                            <p style="color:var(--gray-500)">Stockage non trouvé. Vérifiez le lien.</p>
+                        </div>
+                    </div>`;
+            }
+        }
+
+        function renderPage() {
+            document.getElementById('page').innerHTML = `
+                <div style="max-width:480px;margin:0 auto;padding-top:32px">
+                    <div class="inventory-header">
+                        <div style="color:white">${icons.clipboardList.replace('18', '40').replace('18', '40')}</div>
+                        <h1>Inventaire</h1>
+                        <p>${escapeHtml(storageData?.name || '')}</p>
+                    </div>
+
+                    <div class="inventory-card">
+                        <form id="start-form" class="space-y-5">
+                            <div class="form-group">
+                                <label style="font-weight:600">Votre nom *</label>
+                                <input type="text" id="rescuer-name" class="input-field" style="font-size:16px;padding:12px 14px" placeholder="Prénom Nom" required autofocus>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight:600">Nom du poste</label>
+                                <input type="text" id="post-name" class="input-field" style="font-size:16px;padding:12px 14px" placeholder="Ex: DPS Concert">
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight:600">Numéro du poste</label>
+                                <input type="text" id="post-number" class="input-field" style="font-size:16px;padding:12px 14px" placeholder="Ex: 42">
+                            </div>
+
+                            <p id="post-warning" class="text-xs" style="color:var(--amber-600);display:none">
+                                Au moins un des deux champs (nom ou numéro du poste) doit être rempli.
+                            </p>
+
+                            <div class="form-group">
+                                <label style="font-weight:600;margin-bottom:12px;display:block">Type d'inventaire *</label>
+                                <div class="type-selector">
+                                    <button type="button" class="type-btn" id="type-start" onclick="selectType('START')">
+                                        ${icons.play}
+                                        <span>Début</span>
+                                    </button>
+                                    <button type="button" class="type-btn" id="type-end" onclick="selectType('END')">
+                                        ${icons.flag}
+                                        <span>Fin</span>
+                                    </button>
+                                    <button type="button" class="type-btn" id="type-other" onclick="selectType('OTHER')">
+                                        ${icons.moreHorizontal}
+                                        <span>Autre</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn-primary" style="width:100%;padding:16px;font-size:16px;font-weight:600">
+                                Commencer l'inventaire
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+
+            // Post warning logic
+            const postName = document.getElementById('post-name');
+            const postNumber = document.getElementById('post-number');
+            const warning = document.getElementById('post-warning');
+
+            function checkPostFields() {
+                warning.style.display = (!postName.value.trim() && !postNumber.value.trim()) ? 'block' : 'none';
+            }
+            postName.addEventListener('input', checkPostFields);
+            postNumber.addEventListener('input', checkPostFields);
+            checkPostFields();
+
+            document.getElementById('start-form').addEventListener('submit', handleSubmit);
+        }
+
+        function selectType(type) {
+            selectedType = type;
+            document.querySelectorAll('.type-btn').forEach(btn => {
+                btn.className = 'type-btn';
+            });
+            const btnMap = { START: 'type-start', END: 'type-end', OTHER: 'type-other' };
+            const classMap = { START: 'selected-start', END: 'selected-end', OTHER: 'selected-other' };
+            const el = document.getElementById(btnMap[type]);
+            if (el) el.classList.add(classMap[type]);
+        }
+
+        function handleSubmit(e) {
+            e.preventDefault();
+            const rescuerName = document.getElementById('rescuer-name').value.trim();
+            const postName = document.getElementById('post-name').value.trim();
+            const postNumber = document.getElementById('post-number').value.trim();
+
+            if (!rescuerName) { showToast('Veuillez saisir votre nom', 'error'); return; }
+            if (!postName && !postNumber) { showToast('Veuillez saisir le nom ou le numéro du poste', 'error'); return; }
+            if (!selectedType) { showToast("Veuillez sélectionner le type d'inventaire", 'error'); return; }
+
+            sessionStorage.setItem('sagl_inventory', JSON.stringify({
+                rescuerName, postName, postNumber, type: selectedType
+            }));
+
+            window.location.href = window.location.pathname + '/form';
+        }
+
+        init();
+    </script>
+</body>
+</html>
