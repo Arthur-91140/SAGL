@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1e40af">
+    <title>Matériels - SAGL</title>
+    <link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+    <div class="admin-layout">
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-logo"><h1>SAGL</h1><p>Gestion d'inventaire</p></div>
+            <nav class="sidebar-nav">
+                <a href="index.html"><span class="icon" id="nav-icon-dashboard"></span> Tableau de bord</a>
+                <a href="materials.html" class="active"><span class="icon" id="nav-icon-materials"></span> Matériels</a>
+                <a href="storages.html"><span class="icon" id="nav-icon-storages"></span> Stockages</a>
+                <a href="history.html"><span class="icon" id="nav-icon-history"></span> Historique</a>
+                <a href="stats.html"><span class="icon" id="nav-icon-stats"></span> Statistiques</a>
+                <a href="settings.html"><span class="icon" id="nav-icon-settings"></span> Paramètres</a>
+            </nav>
+            <div class="sidebar-footer"><p>SAGL v1.0</p></div>
+        </aside>
+
+        <div class="main-content">
+            <header class="topbar">
+                <button class="menu-btn" id="menu-btn"></button>
+                <div style="flex:1"></div>
+                <div class="topbar-right">
+                    <div class="notification-wrapper">
+                        <button class="notification-btn" id="notification-btn">
+                            <span id="notification-bell-icon"></span>
+                            <span class="notification-count" id="notification-count" style="display:none">0</span>
+                        </button>
+                        <div class="notification-dropdown" id="notification-dropdown" style="display:none">
+                            <div class="notification-dropdown-header">Notifications (<span id="notif-count-text">0</span>)</div>
+                            <div id="notification-list"></div>
+                        </div>
+                    </div>
+                    <span class="topbar-username" id="topbar-username"></span>
+                    <button class="btn-icon" id="logout-btn" title="Déconnexion"></button>
+                </div>
+            </header>
+
+            <main class="page-content" id="page-content">
+                <div class="spinner-center"><div class="spinner"></div></div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal" style="display:none">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modal-title">Nouveau matériel</h2>
+                <button class="btn-icon" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="material-form">
+                    <div class="form-group">
+                        <label>Nom *</label>
+                        <input type="text" id="mat-name" class="input-field" placeholder="Ex: Compresse stérile 10x10" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" id="mat-description" class="input-field" placeholder="Description optionnelle">
+                    </div>
+                    <div class="form-group">
+                        <label>Seuil d'alerte (stock)</label>
+                        <input type="number" id="mat-threshold" class="input-field" placeholder="Laisser vide pour aucune alerte" min="0">
+                        <p class="help-text">Notification si le stock en réserve descend sous cette quantité</p>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn-secondary" onclick="closeModal()">Annuler</button>
+                        <button type="submit" class="btn-primary" id="mat-submit-btn">Créer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/api.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script>
+        if (!checkAuth()) throw new Error('Not authenticated');
+
+        // Icons
+        document.getElementById('menu-btn').innerHTML = icons.menu;
+        document.getElementById('notification-bell-icon').innerHTML = icons.bell;
+        document.getElementById('logout-btn').innerHTML = icons.logout;
+        document.getElementById('nav-icon-dashboard').innerHTML = icons.dashboard;
+        document.getElementById('nav-icon-materials').innerHTML = icons.package;
+        document.getElementById('nav-icon-storages').innerHTML = icons.folderTree;
+        document.getElementById('nav-icon-history').innerHTML = icons.clipboardList;
+        document.getElementById('nav-icon-stats').innerHTML = icons.barChart;
+        document.getElementById('nav-icon-settings').innerHTML = icons.settings;
+        initSidebar();
+
+        let materialsList = [];
+        let editingId = null;
+
+        async function loadMaterials() {
+            try {
+                materialsList = await materials.list();
+                renderMaterials();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function renderMaterials(searchTerm = '') {
+            const filtered = materialsList.filter(m =>
+                m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (m.description && m.description.toLowerCase().includes(searchTerm.toLowerCase()))
+            );
+
+            document.getElementById('page-content').innerHTML = `
+                <div class="page-header">
+                    <h1 class="page-title">Matériels</h1>
+                    <button class="btn-primary" onclick="openCreate()">${icons.plus} <span class="hidden-mobile">Nouveau matériel</span></button>
+                </div>
+
+                <div class="search-wrapper">
+                    <span class="search-icon">${icons.search}</span>
+                    <input type="text" class="input-field" style="padding-left:40px" placeholder="Rechercher un matériel..." value="${escapeHtml(searchTerm)}" oninput="renderMaterials(this.value)">
+                </div>
+
+                <div class="card no-padding">
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Nom</th>
+                                    <th class="hidden-tablet">Description</th>
+                                    <th class="hidden-mobile">Seuil d'alerte</th>
+                                    <th class="text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${filtered.length === 0
+                                    ? '<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--gray-500)">' + (searchTerm ? 'Aucun résultat' : 'Aucun matériel. Créez-en un !') + '</td></tr>'
+                                    : filtered.map(mat => `
+                                        <tr>
+                                            <td class="font-medium">${escapeHtml(mat.name)}</td>
+                                            <td class="text-sm text-gray-500 hidden-tablet">${escapeHtml(mat.description || '-')}</td>
+                                            <td class="hidden-mobile">${mat.alertThreshold
+                                                ? '<span class="badge badge-amber">' + mat.alertThreshold + '</span>'
+                                                : '<span class="text-gray-400">-</span>'}</td>
+                                            <td class="text-right">
+                                                <button class="btn-icon" title="Modifier" onclick="openEdit(${mat.id})">${icons.pencil}</button>
+                                                <button class="btn-icon danger" title="Supprimer" onclick="handleDelete(${mat.id}, '${escapeHtml(mat.name).replace(/'/g, "\\'")}')">${icons.trash}</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function openCreate() {
+            editingId = null;
+            document.getElementById('modal-title').textContent = 'Nouveau matériel';
+            document.getElementById('mat-submit-btn').textContent = 'Créer';
+            document.getElementById('mat-name').value = '';
+            document.getElementById('mat-description').value = '';
+            document.getElementById('mat-threshold').value = '';
+            document.getElementById('modal').style.display = 'flex';
+        }
+
+        function openEdit(id) {
+            const mat = materialsList.find(m => m.id === id);
+            if (!mat) return;
+            editingId = id;
+            document.getElementById('modal-title').textContent = 'Modifier le matériel';
+            document.getElementById('mat-submit-btn').textContent = 'Modifier';
+            document.getElementById('mat-name').value = mat.name;
+            document.getElementById('mat-description').value = mat.description || '';
+            document.getElementById('mat-threshold').value = mat.alertThreshold || '';
+            document.getElementById('modal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('modal').style.display = 'none';
+        }
+
+        document.getElementById('material-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                name: document.getElementById('mat-name').value,
+                description: document.getElementById('mat-description').value || undefined,
+                alertThreshold: document.getElementById('mat-threshold').value
+                    ? parseInt(document.getElementById('mat-threshold').value) : null,
+            };
+
+            try {
+                if (editingId) {
+                    await materials.update(editingId, data);
+                    showToast('Matériel modifié');
+                } else {
+                    await materials.create(data);
+                    showToast('Matériel créé');
+                }
+                closeModal();
+                loadMaterials();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+
+        async function handleDelete(id, name) {
+            if (!confirm('Supprimer "' + name + '" ? Cette action est irréversible.')) return;
+            try {
+                await materials.delete(id);
+                showToast('Matériel supprimé');
+                loadMaterials();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        loadMaterials();
+    </script>
+</body>
+</html>

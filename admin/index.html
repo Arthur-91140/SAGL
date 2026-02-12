@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1e40af">
+    <title>Tableau de bord - SAGL</title>
+    <link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+    <div class="admin-layout">
+        <!-- Sidebar -->
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-logo">
+                <h1>SAGL</h1>
+                <p>Gestion d'inventaire</p>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="index.html" class="active"><span class="icon" id="nav-icon-dashboard"></span> Tableau de bord</a>
+                <a href="materials.html"><span class="icon" id="nav-icon-materials"></span> Matériels</a>
+                <a href="storages.html"><span class="icon" id="nav-icon-storages"></span> Stockages</a>
+                <a href="history.html"><span class="icon" id="nav-icon-history"></span> Historique</a>
+                <a href="stats.html"><span class="icon" id="nav-icon-stats"></span> Statistiques</a>
+                <a href="settings.html"><span class="icon" id="nav-icon-settings"></span> Paramètres</a>
+            </nav>
+            <div class="sidebar-footer">
+                <p>SAGL v1.0</p>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <div class="main-content">
+            <header class="topbar">
+                <button class="menu-btn" id="menu-btn"></button>
+                <div style="flex:1"></div>
+                <div class="topbar-right">
+                    <div class="notification-wrapper">
+                        <button class="notification-btn" id="notification-btn">
+                            <span id="notification-bell-icon"></span>
+                            <span class="notification-count" id="notification-count" style="display:none">0</span>
+                        </button>
+                        <div class="notification-dropdown" id="notification-dropdown" style="display:none">
+                            <div class="notification-dropdown-header">Notifications (<span id="notif-count-text">0</span>)</div>
+                            <div id="notification-list"></div>
+                        </div>
+                    </div>
+                    <span class="topbar-username" id="topbar-username"></span>
+                    <button class="btn-icon" id="logout-btn" title="Déconnexion"></button>
+                </div>
+            </header>
+
+            <main class="page-content" id="page-content">
+                <div class="spinner-center"><div class="spinner"></div></div>
+            </main>
+        </div>
+    </div>
+
+    <script src="../assets/js/api.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script>
+        if (!checkAuth()) throw new Error('Not authenticated');
+
+        // Init icons
+        document.getElementById('menu-btn').innerHTML = icons.menu;
+        document.getElementById('notification-bell-icon').innerHTML = icons.bell;
+        document.getElementById('logout-btn').innerHTML = icons.logout;
+        document.getElementById('nav-icon-dashboard').innerHTML = icons.dashboard;
+        document.getElementById('nav-icon-materials').innerHTML = icons.package;
+        document.getElementById('nav-icon-storages').innerHTML = icons.folderTree;
+        document.getElementById('nav-icon-history').innerHTML = icons.clipboardList;
+        document.getElementById('nav-icon-stats').innerHTML = icons.barChart;
+        document.getElementById('nav-icon-settings').innerHTML = icons.settings;
+
+        initSidebar();
+
+        // Load dashboard
+        async function loadDashboard() {
+            try {
+                const [statsData, notifsData] = await Promise.all([stats.get(), notifications.get()]);
+                const overview = statsData.overview || {};
+                const notifs = notifsData.notifications || [];
+
+                const content = document.getElementById('page-content');
+                content.innerHTML = `
+                    <h1 class="page-title mb-6">Tableau de bord</h1>
+
+                    <div class="grid grid-4 mb-6">
+                        <div class="card stat-card">
+                            <div class="stat-icon blue">${icons.package}</div>
+                            <div>
+                                <p class="stat-value">${overview.totalMaterials || 0}</p>
+                                <p class="stat-label">Matériels</p>
+                            </div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-icon green">${icons.folderTree}</div>
+                            <div>
+                                <p class="stat-value">${overview.totalStorages || 0}</p>
+                                <p class="stat-label">Stockages</p>
+                            </div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-icon purple">${icons.clipboardList}</div>
+                            <div>
+                                <p class="stat-value">${overview.totalInventories || 0}</p>
+                                <p class="stat-label">Inventaires</p>
+                            </div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-icon amber">${icons.alertTriangle}</div>
+                            <div>
+                                <p class="stat-value">${notifs.length}</p>
+                                <p class="stat-label">Alertes</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid-2-col">
+                        <div class="card">
+                            <h2 class="text-lg font-semibold mb-4">Alertes actives</h2>
+                            ${notifs.length === 0
+                                ? '<p class="text-gray-500 text-sm">Aucune alerte</p>'
+                                : '<div class="space-y-2" style="max-height:320px;overflow-y:auto">' +
+                                  notifs.slice(0, 10).map(n =>
+                                      '<div class="alert ' + (n.severity === 'error' ? 'alert-error' : 'alert-warning') + '">' +
+                                      escapeHtml(n.message) + '</div>'
+                                  ).join('') +
+                                  (notifs.length > 10 ? '<p class="text-sm text-gray-500 text-center mt-2">Et ' + (notifs.length - 10) + ' autres alertes...</p>' : '') +
+                                  '</div>'
+                            }
+                        </div>
+
+                        <div class="card">
+                            <div class="flex items-center justify-between mb-4">
+                                <h2 class="text-lg font-semibold">Activité récente</h2>
+                                <a href="history.html" class="text-sm text-primary-600">Voir tout</a>
+                            </div>
+                            ${!statsData.inventoriesByType || statsData.inventoriesByType.length === 0
+                                ? '<p class="text-gray-500 text-sm">Aucun inventaire</p>'
+                                : '<div class="space-y-2">' +
+                                  statsData.inventoriesByType.map(item => {
+                                      const labels = { START: 'Début de mission', END: 'Fin de mission', OTHER: 'Autre' };
+                                      return '<div class="inline-item"><span class="text-sm font-medium">' +
+                                          (labels[item.type] || item.type) +
+                                          '</span><span class="text-sm text-gray-600">' + item.count + ' inventaire(s)</span></div>';
+                                  }).join('') +
+                                  '</div>'
+                            }
+                            <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--gray-100)">
+                                <p class="text-sm text-gray-500">${overview.recentInventories || 0} inventaire(s) ces 30 derniers jours</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (err) {
+                document.getElementById('page-content').innerHTML =
+                    '<div class="text-center text-gray-500" style="padding:40px">Erreur de chargement: ' + escapeHtml(err.message) + '</div>';
+            }
+        }
+
+        loadDashboard();
+    </script>
+</body>
+</html>

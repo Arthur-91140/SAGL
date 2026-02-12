@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#16a34a">
+    <title>Inventaire envoyé - SAGL</title>
+    <link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+    <div class="complete-page" id="page">
+        <div class="complete-card">
+            <div class="complete-icon" id="check-icon"></div>
+            <h1>Inventaire envoyé !</h1>
+            <p class="subtitle" id="subtitle">Merci pour votre travail.</p>
+
+            <div class="complete-stats" id="stats-container"></div>
+
+            <a id="new-inventory-btn" href="#" class="btn-primary" style="width:100%;padding:12px;text-decoration:none">
+                Nouvel inventaire
+            </a>
+        </div>
+    </div>
+
+    <script src="../assets/js/api.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script>
+        const pathParts = window.location.pathname.split('/');
+        const iIdx = pathParts.indexOf('i');
+        const uniqueLink = iIdx >= 0 ? pathParts[iIdx + 1] : '';
+
+        // Set icons
+        document.getElementById('check-icon').innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>';
+
+        // Link for new inventory
+        const basePath = window.location.pathname.replace('/complete', '');
+        document.getElementById('new-inventory-btn').href = basePath;
+
+        // Load result
+        const saved = sessionStorage.getItem('sagl_inventory_result');
+        if (saved) {
+            const result = JSON.parse(saved);
+            sessionStorage.removeItem('sagl_inventory');
+            sessionStorage.removeItem('sagl_inventory_result');
+
+            document.getElementById('subtitle').textContent = 'Merci pour votre travail sur ' + (result.storageName || 'ce stockage') + '.';
+
+            let statsHtml = `
+                <div class="complete-stat">
+                    <span style="color:var(--green-500)">${icons.checkCircle}</span>
+                    <span>${result.itemCount} matériel(s) vérifiés</span>
+                </div>
+            `;
+
+            if (result.addedCount > 0) {
+                statsHtml += `
+                    <div class="complete-stat" style="color:var(--green-600)">
+                        ${icons.plusCircle}
+                        <span>${result.addedCount} matériel(s) réassortis</span>
+                    </div>
+                `;
+            }
+
+            if (result.missingCount > 0) {
+                statsHtml += `
+                    <div class="complete-stat" style="color:var(--amber-600)">
+                        ${icons.alertTriangle}
+                        <span>${result.missingCount} matériel(s) manquants signalés</span>
+                    </div>
+                `;
+            }
+
+            document.getElementById('stats-container').innerHTML = statsHtml;
+        }
+    </script>
+</body>
+</html>

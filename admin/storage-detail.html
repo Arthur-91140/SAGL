@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1e40af">
+    <title>Détail stockage - SAGL</title>
+    <link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+    <div class="admin-layout">
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-logo"><h1>SAGL</h1><p>Gestion d'inventaire</p></div>
+            <nav class="sidebar-nav">
+                <a href="index.html"><span class="icon" id="nav-icon-dashboard"></span> Tableau de bord</a>
+                <a href="materials.html"><span class="icon" id="nav-icon-materials"></span> Matériels</a>
+                <a href="storages.html" class="active"><span class="icon" id="nav-icon-storages"></span> Stockages</a>
+                <a href="history.html"><span class="icon" id="nav-icon-history"></span> Historique</a>
+                <a href="stats.html"><span class="icon" id="nav-icon-stats"></span> Statistiques</a>
+                <a href="settings.html"><span class="icon" id="nav-icon-settings"></span> Paramètres</a>
+            </nav>
+            <div class="sidebar-footer"><p>SAGL v1.0</p></div>
+        </aside>
+
+        <div class="main-content">
+            <header class="topbar">
+                <button class="menu-btn" id="menu-btn"></button>
+                <div style="flex:1"></div>
+                <div class="topbar-right">
+                    <div class="notification-wrapper">
+                        <button class="notification-btn" id="notification-btn"><span id="notification-bell-icon"></span><span class="notification-count" id="notification-count" style="display:none">0</span></button>
+                        <div class="notification-dropdown" id="notification-dropdown" style="display:none"><div class="notification-dropdown-header">Notifications (<span id="notif-count-text">0</span>)</div><div id="notification-list"></div></div>
+                    </div>
+                    <span class="topbar-username" id="topbar-username"></span>
+                    <button class="btn-icon" id="logout-btn" title="Déconnexion"></button>
+                </div>
+            </header>
+
+            <main class="page-content" id="page-content">
+                <div class="spinner-center"><div class="spinner"></div></div>
+            </main>
+        </div>
+    </div>
+
+    <script src="../assets/js/api.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script>
+        if (!checkAuth()) throw new Error('Not authenticated');
+
+        document.getElementById('menu-btn').innerHTML = icons.menu;
+        document.getElementById('notification-bell-icon').innerHTML = icons.bell;
+        document.getElementById('logout-btn').innerHTML = icons.logout;
+        document.getElementById('nav-icon-dashboard').innerHTML = icons.dashboard;
+        document.getElementById('nav-icon-materials').innerHTML = icons.package;
+        document.getElementById('nav-icon-storages').innerHTML = icons.folderTree;
+        document.getElementById('nav-icon-history').innerHTML = icons.clipboardList;
+        document.getElementById('nav-icon-stats').innerHTML = icons.barChart;
+        document.getElementById('nav-icon-settings').innerHTML = icons.settings;
+        initSidebar();
+
+        const params = new URLSearchParams(window.location.search);
+        const storageId = parseInt(params.get('id'));
+        let storageData = null;
+        let allMaterials = [];
+        let editingTemplate = false;
+        let editingStock = false;
+        let templateItems = [];
+        let stockItems = [];
+
+        async function loadData() {
+            try {
+                const [s, mats] = await Promise.all([storages.get(storageId), materials.list()]);
+                storageData = s;
+                allMaterials = mats;
+                templateItems = s.templateItems.map(t => ({ materialId: String(t.materialId), expectedQuantity: String(t.expectedQuantity) }));
+                stockItems = s.stockItems.map(si => ({
+                    materialId: String(si.materialId),
+                    quantity: String(si.quantity),
+                    expirationDate: si.expirationDate ? si.expirationDate.split('T')[0] : ''
+                }));
+                renderDetail();
+            } catch (err) {
+                document.getElementById('page-content').innerHTML = '<p style="text-align:center;padding:40px;color:var(--gray-500)">Stockage non trouvé</p>';
+            }
+        }
+
+        function renderDetail() {
+            const s = storageData;
+            const baseUrl = window.location.origin;
+
+            let html = `
+                <div class="flex items-center gap-3 mb-6">
+                    <a href="storages.html" class="btn-icon">${icons.arrowLeft}</a>
+                    <h1 class="page-title flex-1">${escapeHtml(s.name)}</h1>
+                    ${s.isGlobalStock ? '<span class="badge badge-amber">Réserve</span>' : ''}
+                    ${!s.isGlobalStock ? '<button class="btn-danger" onclick="handleDelete()">' + icons.trash + ' <span class="hidden-mobile">Supprimer</span></button>' : ''}
+                </div>
+            `;
+
+            if (s.parent) {
+                html += `<p class="text-sm text-gray-500 mb-4">Parent : <a href="storage-detail.html?id=${s.parent.id}">${escapeHtml(s.parent.name)}</a></p>`;
+            }
+
+            html += '<div class="grid-2-col">';
+
+            // Lien d'inventaire
+            html += '<div class="card"><h2 class="text-lg font-semibold mb-4 flex items-center gap-2">' + icons.link + ' Lien d\'inventaire</h2>';
+            if (s.uniqueLink) {
+                html += `
+                    <div class="mono mb-3">${baseUrl}/i/${s.uniqueLink}</div>
+                    <div class="flex gap-2 mb-2">
+                        <button class="btn-secondary flex-1 text-sm" onclick="copyLink()">Copier le lien</button>
+                        <button class="btn-secondary text-sm" onclick="downloadQR()">${icons.qrcode} QR Code</button>
+                    </div>
+                    <button class="text-sm text-gray-500" onclick="generateLink()" style="background:none;border:none;cursor:pointer">Regénérer le lien</button>
+                `;
+            } else {
+                html += `<button class="btn-primary" onclick="generateLink()">${icons.link} Générer un lien</button>`;
+            }
+            html += '</div>';
+
+            // Sous-stockages
+            html += '<div class="card"><div class="flex items-center justify-between mb-4">';
+            html += '<h2 class="text-lg font-semibold flex items-center gap-2">' + icons.folderTree + ' Sous-stockages (' + (s.children?.length || 0) + ')</h2>';
+            html += '<button class="btn-secondary text-sm" onclick="toggleAddChild()">' + icons.plus + ' Ajouter</button></div>';
+            if (s.children?.length === 0) {
+                html += '<p class="text-gray-500 text-sm">Aucun sous-stockage</p>';
+            } else {
+                html += '<div class="space-y-2">';
+                s.children.forEach(c => {
+                    html += '<a href="storage-detail.html?id=' + c.id + '" class="inline-item" style="text-decoration:none;display:flex">' +
+                        '<span class="font-medium text-sm">' + escapeHtml(c.name) + '</span>' +
+                        '<span class="text-xs text-gray-500">' + (c.templateItems?.length || 0) + ' matériel(s)' +
+                        (c._count?.children > 0 ? ' · ' + c._count.children + ' sous-stockage(s)' : '') + '</span></a>';
+                });
+                html += '</div>';
+            }
+            html += '<div id="add-child-form" style="display:none;margin-top:12px"></div></div>';
+
+            // Template
+            html += '<div class="card"><div class="flex items-center justify-between mb-4">';
+            html += '<h2 class="text-lg font-semibold">Contenu attendu (template)</h2>';
+            html += '<button class="btn-secondary text-sm" onclick="toggleTemplate()">' + (editingTemplate ? 'Annuler' : 'Modifier') + '</button></div>';
+            html += '<div id="template-content"></div></div>';
+
+            // Stock
+            html += '<div class="card"><div class="flex items-center justify-between mb-4">';
+            html += '<h2 class="text-lg font-semibold">Stock actuel</h2>';
+            html += '<button class="btn-secondary text-sm" onclick="toggleStock()">' + (editingStock ? 'Annuler' : 'Modifier') + '</button></div>';
+            html += '<div id="stock-content"></div></div>';
+
+            html += '</div>';
+            document.getElementById('page-content').innerHTML = html;
+
+            renderTemplateContent();
+            renderStockContent();
+        }
+
+        function renderTemplateContent() {
+            const el = document.getElementById('template-content');
+            if (!el) return;
+
+            if (editingTemplate) {
+                let html = '<form onsubmit="saveTemplate(event)" class="space-y-3">';
+                templateItems.forEach((item, i) => {
+                    html += `<div class="flex gap-2 items-center">
+                        <select class="input-field flex-1" onchange="templateItems[${i}].materialId=this.value">
+                            <option value="">Sélectionner...</option>
+                            ${allMaterials.map(m => '<option value="' + m.id + '"' + (String(m.id) === item.materialId ? ' selected' : '') + '>' + escapeHtml(m.name) + '</option>').join('')}
+                        </select>
+                        <input type="number" class="input-field" style="width:96px" value="${item.expectedQuantity}" min="1" placeholder="Qté" onchange="templateItems[${i}].expectedQuantity=this.value">
+                        <button type="button" class="btn-icon danger" onclick="templateItems.splice(${i},1);renderTemplateContent()">${icons.trash}</button>
+                    </div>`;
+                });
+                html += `<button type="button" class="btn-secondary text-sm" style="width:100%" onclick="templateItems.push({materialId:'',expectedQuantity:''});renderTemplateContent()">${icons.plus} Ajouter un matériel</button>`;
+                html += `<button type="submit" class="btn-primary" style="width:100%">${icons.save} Enregistrer le template</button>`;
+                html += '</form>';
+                el.innerHTML = html;
+            } else {
+                if (storageData.templateItems.length === 0) {
+                    el.innerHTML = '<p class="text-gray-500 text-sm">Aucun contenu attendu défini</p>';
+                } else {
+                    el.innerHTML = '<div class="space-y-2">' +
+                        storageData.templateItems.map(t =>
+                            '<div class="inline-item"><span class="text-sm">' + escapeHtml(t.material.name) +
+                            '</span><span class="text-sm font-semibold text-primary-600">' + t.expectedQuantity + '</span></div>'
+                        ).join('') + '</div>';
+                }
+            }
+        }
+
+        function renderStockContent() {
+            const el = document.getElementById('stock-content');
+            if (!el) return;
+
+            if (editingStock) {
+                let html = '<form onsubmit="saveStock(event)" class="space-y-3">';
+                stockItems.forEach((item, i) => {
+                    html += `<div class="flex gap-2 items-center">
+                        <select class="input-field flex-1" onchange="stockItems[${i}].materialId=this.value">
+                            <option value="">Sélectionner...</option>
+                            ${allMaterials.map(m => '<option value="' + m.id + '"' + (String(m.id) === item.materialId ? ' selected' : '') + '>' + escapeHtml(m.name) + '</option>').join('')}
+                        </select>
+                        <input type="number" class="input-field" style="width:80px" value="${item.quantity}" min="0" placeholder="Qté" onchange="stockItems[${i}].quantity=this.value">
+                        <input type="date" class="input-field" style="width:160px" value="${item.expirationDate}" title="Date de péremption" onchange="stockItems[${i}].expirationDate=this.value">
+                        <button type="button" class="btn-icon danger" onclick="stockItems.splice(${i},1);renderStockContent()">${icons.trash}</button>
+                    </div>`;
+                });
+                html += `<button type="button" class="btn-secondary text-sm" style="width:100%" onclick="stockItems.push({materialId:'',quantity:'',expirationDate:''});renderStockContent()">${icons.plus} Ajouter un matériel</button>`;
+                html += `<button type="submit" class="btn-primary" style="width:100%">${icons.save} Enregistrer le stock</button>`;
+                html += '</form>';
+                el.innerHTML = html;
+            } else {
+                if (storageData.stockItems.length === 0) {
+                    el.innerHTML = '<p class="text-gray-500 text-sm">Aucun stock enregistré</p>';
+                } else {
+                    el.innerHTML = '<div class="space-y-2">' +
+                        storageData.stockItems.map(si => {
+                            let expHtml = '';
+                            if (si.expirationDate) {
+                                const isExpired = new Date(si.expirationDate) < new Date();
+                                expHtml = ' <span class="text-xs ' + (isExpired ? 'text-red-600 font-semibold' : 'text-gray-500') + '">(exp: ' + formatDateShort(si.expirationDate) + ')</span>';
+                            }
+                            return '<div class="inline-item"><div><span class="text-sm">' + escapeHtml(si.material.name) + '</span>' + expHtml +
+                                '</div><span class="text-sm font-semibold">' + si.quantity + '</span></div>';
+                        }).join('') + '</div>';
+                }
+            }
+        }
+
+        function toggleTemplate() {
+            editingTemplate = !editingTemplate;
+            if (editingTemplate) {
+                templateItems = storageData.templateItems.map(t => ({ materialId: String(t.materialId), expectedQuantity: String(t.expectedQuantity) }));
+            }
+            renderDetail();
+        }
+
+        function toggleStock() {
+            editingStock = !editingStock;
+            if (editingStock) {
+                stockItems = storageData.stockItems.map(si => ({
+                    materialId: String(si.materialId), quantity: String(si.quantity),
+                    expirationDate: si.expirationDate ? si.expirationDate.split('T')[0] : ''
+                }));
+            }
+            renderDetail();
+        }
+
+        async function saveTemplate(e) {
+            e.preventDefault();
+            try {
+                const items = templateItems.filter(t => t.materialId && t.expectedQuantity).map(t => ({
+                    materialId: parseInt(t.materialId), expectedQuantity: parseInt(t.expectedQuantity)
+                }));
+                await storages.updateTemplate(storageId, items);
+                showToast('Template mis à jour');
+                editingTemplate = false;
+                loadData();
+            } catch (err) { showToast(err.message, 'error'); }
+        }
+
+        async function saveStock(e) {
+            e.preventDefault();
+            try {
+                const items = stockItems.filter(s => s.materialId && s.quantity).map(s => ({
+                    materialId: parseInt(s.materialId), quantity: parseInt(s.quantity),
+                    expirationDate: s.expirationDate || undefined
+                }));
+                await storages.updateStock(storageId, items);
+                showToast('Stock mis à jour');
+                editingStock = false;
+                loadData();
+            } catch (err) { showToast(err.message, 'error'); }
+        }
+
+        async function handleDelete() {
+            if (!confirm('Supprimer "' + storageData.name + '" et tous ses sous-stockages ?')) return;
+            try {
+                await storages.delete(storageId);
+                showToast('Stockage supprimé');
+                window.location.href = 'storages.html';
+            } catch (err) { showToast(err.message, 'error'); }
+        }
+
+        async function generateLink() {
+            try {
+                await storages.generateLink(storageId);
+                showToast('Lien généré');
+                loadData();
+            } catch (err) { showToast(err.message, 'error'); }
+        }
+
+        function copyLink() {
+            const url = window.location.origin + '/i/' + storageData.uniqueLink;
+            navigator.clipboard.writeText(url).then(() => showToast('Lien copié')).catch(() => showToast('Erreur', 'error'));
+        }
+
+        async function downloadQR() {
+            try {
+                const blob = await storages.getQRCode(storageId);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'qr-' + storageData.name + '.svg';
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (err) { showToast(err.message, 'error'); }
+        }
+
+        function toggleAddChild() {
+            const el = document.getElementById('add-child-form');
+            if (el.style.display === 'none') {
+                el.style.display = 'block';
+                el.innerHTML = `<form onsubmit="addChild(event)" class="flex gap-2">
+                    <input type="text" id="child-name" class="input-field flex-1" placeholder="Nom du sous-stockage" required autofocus>
+                    <button type="submit" class="btn-primary">${icons.plus}</button>
+                    <button type="button" class="btn-secondary" onclick="this.parentElement.parentElement.style.display='none'">&times;</button>
+                </form>`;
+            } else {
+                el.style.display = 'none';
+            }
+        }
+
+        async function addChild(e) {
+            e.preventDefault();
+            const name = document.getElementById('child-name').value;
+            try {
+                await storages.create({ name, parentId: storageId });
+                showToast('Sous-stockage créé');
+                loadData();
+            } catch (err) { showToast(err.message, 'error'); }
+        }
+
+        loadData();
+    </script>
+</body>
+</html>
